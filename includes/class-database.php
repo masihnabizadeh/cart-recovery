@@ -158,10 +158,27 @@ class WC_Acart_SMS_Database {
         return (int) $wpdb->insert_id;
     }
 
-    public static function get_abandoned_candidates($cutoff_mysql) {
+    /**
+     * @param string $cutoff_mysql
+     * @param bool   $force بدون فیلتر زمان (اجرای دستی تست)
+     */
+    public static function get_abandoned_candidates($cutoff_mysql, $force = false) {
         global $wpdb;
 
         $table = self::table_name();
+
+        if ($force) {
+            return $wpdb->get_results(
+                "SELECT * FROM {$table}
+                 WHERE sms_sent = 0
+                 AND recovered = 0
+                 AND phone IS NOT NULL
+                 AND phone != ''
+                 AND cart_data IS NOT NULL
+                 AND cart_data != ''
+                 ORDER BY id ASC"
+            );
+        }
 
         return $wpdb->get_results(
             $wpdb->prepare(
@@ -230,6 +247,27 @@ class WC_Acart_SMS_Database {
                 $limit
             )
         );
+    }
+
+    /**
+     * یک‌بار شماره‌های قدیمی را به فرمت 09... نرمال می‌کند.
+     */
+    public static function normalize_stored_phones() {
+        global $wpdb;
+
+        $table = self::table_name();
+        $rows  = $wpdb->get_results("SELECT id, phone FROM {$table} WHERE phone != ''");
+
+        if (empty($rows)) {
+            return;
+        }
+
+        foreach ($rows as $row) {
+            $normalized = WC_Acart_SMS_Cart_Tracker::normalize_phone($row->phone);
+            if ($normalized && $normalized !== $row->phone) {
+                $wpdb->update($table, ['phone' => $normalized], ['id' => (int) $row->id]);
+            }
+        }
     }
 
     public static function get_cart_status_label($row) {

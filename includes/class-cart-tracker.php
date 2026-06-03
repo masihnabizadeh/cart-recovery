@@ -35,6 +35,8 @@ class WC_Acart_SMS_Cart_Tracker {
             return;
         }
 
+        $phone = self::normalize_phone($phone);
+
         WC_Acart_SMS_Database::upsert_active_cart([
             'session_id'    => self::get_session_id(),
             'user_id'       => get_current_user_id() ?: null,
@@ -92,7 +94,7 @@ class WC_Acart_SMS_Cart_Tracker {
             $digits = '0' . $digits;
         }
 
-        if (strlen($digits) === 12 && strpos($digits, '98') === 0) {
+        if (strpos($digits, '98') === 0 && strlen($digits) >= 11) {
             $digits = '0' . substr($digits, 2);
         }
 

@@ -67,11 +67,31 @@ class WC_Acart_SMS_Admin_Page {
                     </a>
                 </p>
 
-                <?php if (isset($_GET['wc_acart_test']) && check_admin_referer('wc_acart_test_cron')) : ?>
-                    <?php
-                    WC_Acart_SMS_Abandon_Detector::process();
+                <?php
+                if (isset($_GET['wc_acart_test']) && check_admin_referer('wc_acart_test_cron')) :
+                    WC_Acart_SMS_Database::normalize_stored_phones();
+                    $run = WC_Acart_SMS_Abandon_Detector::process(true);
                     ?>
-                    <p class="notice notice-success inline"><?php esc_html_e('پردازش دستی سبدهای رها شده اجرا شد.', 'wc-abandoned-cart-sms'); ?></p>
+                    <div class="notice notice-success inline">
+                        <p>
+                            <?php
+                            printf(
+                                esc_html__(
+                                    'اجرای دستی انجام شد — کاندید: %1$d | پردازش‌شده: %2$d | ردشده: %3$d',
+                                    'wc-abandoned-cart-sms'
+                                ),
+                                (int) $run['candidates'],
+                                (int) $run['processed'],
+                                (int) $run['skipped']
+                            );
+                            ?>
+                        </p>
+                        <?php if ($run['candidates'] === 0) : ?>
+                            <p><?php esc_html_e('سبدی برای پردازش نبود (همه پیامک‌خورده‌اند یا هنوز در بازه زمانی رها شدن هستند). در حالت Cron فقط سبدهای قدیمی‌تر از زمان تنظیم‌شده پردازش می‌شوند.', 'wc-abandoned-cart-sms'); ?></p>
+                        <?php elseif ($run['processed'] === 0) : ?>
+                            <p><?php esc_html_e('همه سبدها رد شدند — احتمالاً سفارش موفق بعد از last_activity ثبت شده است.', 'wc-abandoned-cart-sms'); ?></p>
+                        <?php endif; ?>
+                    </div>
                 <?php endif; ?>
 
                 <p>
@@ -204,6 +224,12 @@ class WC_Acart_SMS_Admin_Page {
         ?>
         <div class="wrap wc-acart-sms-wrap">
             <h1><?php esc_html_e('گزارش سبدهای رها شده', 'wc-abandoned-cart-sms'); ?></h1>
+
+            <p>
+                <a class="button button-primary" href="<?php echo esc_url(wp_nonce_url(admin_url('admin.php?page=wc-acart-sms&wc_acart_test=1'), 'wc_acart_test_cron')); ?>">
+                    <?php esc_html_e('اجرای دستی پردازش (تست کوپن + SMS)', 'wc-abandoned-cart-sms'); ?>
+                </a>
+            </p>
 
             <div class="wc-acart-stats-grid">
                 <div class="wc-acart-stat-item">

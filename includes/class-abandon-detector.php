@@ -6,28 +6,51 @@ if (!defined('ABSPATH')) {
 
 class WC_Acart_SMS_Abandon_Detector {
 
-    public static function process() {
+    /**
+     * @param bool $force اجرای دستی از ادمین: بدون شرط زمان و بدون بررسی سبد فعال مرورگر.
+     * @return array{processed:int,skipped:int,candidates:int}
+     */
+    public static function process($force = false) {
         $minutes = WC_Acart_SMS_Settings::get_abandon_minutes();
+        $cutoff  = self::get_cutoff_datetime($minutes);
+        $rows    = WC_Acart_SMS_Database::get_abandoned_candidates($cutoff, $force);
 
-        $cutoff = wp_date('Y-m-d H:i:s', time() - ($minutes * MINUTE_IN_SECONDS));
-        $rows   = WC_Acart_SMS_Database::get_abandoned_candidates($cutoff);
+        $result = [
+            'processed'  => 0,
+            'skipped'    => 0,
+            'candidates' => count($rows),
+        ];
 
         if (empty($rows)) {
-            return;
+            return $result;
         }
 
         foreach ($rows as $row) {
-            self::process_single_cart($row);
+            if (self::process_single_cart($row, $force)) {
+                $result['processed']++;
+            } else {
+                $result['skipped']++;
+            }
         }
+
+        return $result;
     }
 
-    private static function process_single_cart($row) {
+    private static function get_cutoff_datetime($minutes) {
+        $ts = current_time('timestamp') - ($minutes * MINUTE_IN_SECONDS);
+        return wp_date('Y-m-d H:i:s', $ts);
+    }
+
+    /**
+     * @return bool true if processed (abandoned + coupon attempted)
+     */
+    private static function process_single_cart($row, $force = false) {
         if (self::has_recent_order($row)) {
-            return;
+            return false;
         }
 
-        if (!self::cart_still_abandoned($row)) {
-            return;
+        if (!$force && !self::cart_still_abandoned($row)) {
+            return false;
         }
 
         WC_Acart_SMS_Database::update_row((int) $row->id, [
@@ -53,46 +76,81 @@ class WC_Acart_SMS_Abandon_Detector {
                 'sms_sent' => 1,
             ]);
         }
+
+        return true;
     }
 
-    /**
-     * User completed an order after this cart's last activity.
-     */
     private static function has_recent_order($row) {
         if (empty($row->phone)) {
             return false;
         }
 
-        $orders = wc_get_orders([
-            'limit'         => 1,
-            'billing_phone' => $row->phone,
-            'status'        => ['processing', 'completed', 'on-hold'],
-            'date_after'    => $row->last_activity,
-            'orderby'       => 'date',
-            'order'         => 'DESC',
-            'return'        => 'ids',
-        ]);
-
-        return !empty($orders);
-    }
-
-    /**
-     * WooCommerce live cart for this user/session should be empty or inactive.
-     */
-    private static function cart_still_abandoned($row) {
-        if (!function_exists('WC') || !WC()->cart) {
-            return true;
+        $phones   = self::phone_search_variants($row->phone);
+        $after_ts = strtotime($row->last_activity);
+        if (!$after_ts) {
+            return false;
         }
 
-        $current_phone = WC_Acart_SMS_Cart_Tracker::resolve_phone();
-        if ($current_phone && $current_phone === $row->phone && !WC()->cart->is_empty()) {
-            $last = strtotime($row->last_activity);
-            $now  = strtotime(current_time('mysql'));
-            if (($now - $last) < (WC_Acart_SMS_Settings::get_abandon_minutes() * 60)) {
-                return false;
+        foreach ($phones as $phone_variant) {
+            $orders = wc_get_orders([
+                'limit'         => 1,
+                'billing_phone' => $phone_variant,
+                'status'        => ['processing', 'completed', 'on-hold'],
+                'date_created'  => '>' . $after_ts,
+                'orderby'       => 'date',
+                'order'         => 'DESC',
+                'return'        => 'ids',
+            ]);
+
+            if (!empty($orders)) {
+                return true;
             }
         }
 
-        return true;
+        return false;
+    }
+
+    /**
+     * اگر همان کاربر الان در مرورگر سبد پر دارد و هنوز داخل بازه رها شدن است، صبر کن.
+     */
+    private static function cart_still_abandoned($row) {
+        if (!function_exists('WC') || !WC()->cart || WC()->cart->is_empty()) {
+            return true;
+        }
+
+        $row_phone     = WC_Acart_SMS_Cart_Tracker::normalize_phone($row->phone);
+        $current_phone = WC_Acart_SMS_Cart_Tracker::resolve_phone();
+
+        if ($row_phone === '' || $current_phone === '' || $row_phone !== $current_phone) {
+            return true;
+        }
+
+        $minutes = WC_Acart_SMS_Settings::get_abandon_minutes();
+        $last_ts = strtotime($row->last_activity);
+        $now_ts  = current_time('timestamp');
+
+        if (!$last_ts) {
+            return true;
+        }
+
+        return ($now_ts - $last_ts) >= ($minutes * MINUTE_IN_SECONDS);
+    }
+
+    /**
+     * @return string[]
+     */
+    private static function phone_search_variants($phone) {
+        $normalized = WC_Acart_SMS_Cart_Tracker::normalize_phone($phone);
+        $variants   = array_unique(array_filter([
+            $phone,
+            $normalized,
+        ]));
+
+        if ($normalized !== '' && strpos($normalized, '0') === 0) {
+            $variants[] = '98' . substr($normalized, 1);
+            $variants[] = '+98' . substr($normalized, 1);
+        }
+
+        return $variants;
     }
 }

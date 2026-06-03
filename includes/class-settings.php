@@ -47,8 +47,11 @@ class WC_Acart_SMS_Settings {
     }
 
     public static function get_abandon_minutes() {
-        $minutes = (int) get_option('wc_acart_sms_abandon_minutes', 45);
-        return max(1, $minutes);
+        $minutes = get_option('wc_acart_sms_abandon_minutes', '');
+        if ($minutes === '' || $minutes === false) {
+            $minutes = get_option('wc_acart_sms_abandon_time', 45);
+        }
+        return max(1, (int) $minutes);
     }
 
     public static function is_coupon_enabled() {
