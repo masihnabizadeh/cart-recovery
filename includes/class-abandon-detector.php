@@ -66,8 +66,8 @@ class WC_Acart_SMS_Abandon_Detector {
             $row->coupon_code = $coupon_code;
         }
 
-        $recovery_url = WC_Acart_SMS_Recovery::get_recovery_url($row->recovery_hash);
-        $message      = WC_Acart_SMS_SMS::build_message($recovery_url, $row->coupon_code ?? '');
+        $recovery_url = WC_Acart_SMS_Recovery::get_recovery_url($row);
+        $message      = WC_Acart_SMS_SMS::build_message($recovery_url, $row->coupon_code ?? '', $row);
 
         $sent = WC_Acart_SMS_SMS::send($row->phone, $message);
 

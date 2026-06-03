@@ -24,6 +24,7 @@ class WC_Acart_SMS_Settings {
             'wc_acart_sms_coupon_amount',
             'wc_acart_sms_coupon_expiry_hours',
             'wc_acart_sms_coupon_code_length',
+            'wc_acart_sms_include_customer_name',
         ];
 
         foreach ($options as $option) {
@@ -58,8 +59,12 @@ class WC_Acart_SMS_Settings {
         return get_option('wc_acart_sms_enable_coupon', 'yes') === 'yes';
     }
 
+    public static function include_customer_name() {
+        return get_option('wc_acart_sms_include_customer_name', 'yes') === 'yes';
+    }
+
     public static function get_message_template() {
-        $default = 'سبد خرید شما کامل نشد. کد تخفیف: {coupon} — مهلت: {expiry} — ادامه خرید: {cart_link}';
+        $default = '{first_name} عزیز، سبد خرید شما کامل نشد. کد: {coupon} — مهلت: {expiry} — {cart_link}';
 
         $value = get_option('wc_acart_sms_message_template', '');
         if ($value === '' || $value === false) {

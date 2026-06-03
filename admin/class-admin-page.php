@@ -148,11 +148,24 @@ class WC_Acart_SMS_Admin_Page {
                 <h2><?php esc_html_e('قالب پیامک', 'wc-abandoned-cart-sms'); ?></h2>
                 <table class="form-table">
                     <tr>
+                        <th><label for="wc_acart_sms_include_customer_name"><?php esc_html_e('نام کاربر در پیامک', 'wc-abandoned-cart-sms'); ?></label></th>
+                        <td>
+                            <select id="wc_acart_sms_include_customer_name" name="wc_acart_sms_include_customer_name">
+                                <option value="yes" <?php selected(WC_Acart_SMS_Settings::include_customer_name(), true); ?>><?php esc_html_e('بله — استفاده از {first_name} و {last_name}', 'wc-abandoned-cart-sms'); ?></option>
+                                <option value="no" <?php selected(WC_Acart_SMS_Settings::include_customer_name(), false); ?>><?php esc_html_e('خیر — نام در متن جایگزین نمی‌شود', 'wc-abandoned-cart-sms'); ?></option>
+                            </select>
+                            <p class="description"><?php esc_html_e('نام از پروفایل ووکامرس / billing ذخیره می‌شود.', 'wc-abandoned-cart-sms'); ?></p>
+                        </td>
+                    </tr>
+                    <tr>
                         <th><label for="wc_acart_sms_message_template"><?php esc_html_e('متن پیامک', 'wc-abandoned-cart-sms'); ?></label></th>
                         <td>
                             <textarea id="wc_acart_sms_message_template" name="wc_acart_sms_message_template" rows="6" class="large-text"><?php echo esc_textarea(WC_Acart_SMS_Settings::get_message_template()); ?></textarea>
                             <p class="description">
-                                <?php esc_html_e('متغیرها: {cart_link} {coupon} {expiry}', 'wc-abandoned-cart-sms'); ?>
+                                <?php esc_html_e('متغیرها: {cart_link} {coupon} {expiry} {first_name} {last_name} {full_name}', 'wc-abandoned-cart-sms'); ?>
+                            </p>
+                            <p class="description">
+                                <?php esc_html_e('لینک بازیابی کوتاه: yoursite.com/r/xxxxxxxx', 'wc-abandoned-cart-sms'); ?>
                             </p>
                         </td>
                     </tr>

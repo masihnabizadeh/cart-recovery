@@ -28,6 +28,9 @@ class WC_Acart_SMS_Database {
             cart_total DECIMAL(10,2) NULL,
             coupon_code VARCHAR(50) NULL,
             recovery_hash VARCHAR(64) NULL,
+            recovery_code VARCHAR(12) NULL,
+            customer_first_name VARCHAR(100) NULL,
+            customer_last_name VARCHAR(100) NULL,
             sms_sent TINYINT(1) DEFAULT 0,
             recovered TINYINT(1) DEFAULT 0,
             created_at DATETIME NOT NULL,
@@ -40,12 +43,76 @@ class WC_Acart_SMS_Database {
             KEY phone (phone),
             KEY sms_sent (sms_sent),
             KEY abandoned_at (abandoned_at),
-            KEY recovery_hash (recovery_hash)
+            KEY recovery_hash (recovery_hash),
+            UNIQUE KEY recovery_code (recovery_code)
         ) {$charset_collate};";
 
         dbDelta($sql);
 
+        self::maybe_upgrade_columns();
         self::migrate_legacy_table();
+        self::backfill_recovery_codes();
+    }
+
+    public static function maybe_upgrade_columns() {
+        global $wpdb;
+
+        $table   = self::table_name();
+        $columns = $wpdb->get_col("SHOW COLUMNS FROM {$table}", 0);
+
+        $alters = [
+            'recovery_code'        => "ALTER TABLE {$table} ADD recovery_code VARCHAR(12) NULL AFTER recovery_hash",
+            'customer_first_name'  => "ALTER TABLE {$table} ADD customer_first_name VARCHAR(100) NULL AFTER recovery_code",
+            'customer_last_name'   => "ALTER TABLE {$table} ADD customer_last_name VARCHAR(100) NULL AFTER customer_first_name",
+        ];
+
+        foreach ($alters as $column => $sql) {
+            if (!in_array($column, $columns, true)) {
+                $wpdb->query($sql);
+            }
+        }
+    }
+
+    public static function generate_recovery_code() {
+        global $wpdb;
+
+        $table = self::table_name();
+
+        for ($i = 0; $i < 20; $i++) {
+            $code = strtolower(wp_generate_password(8, false, false));
+            $code = preg_replace('/[^a-z0-9]/', '', $code);
+
+            if (strlen($code) < 6) {
+                continue;
+            }
+
+            $exists = $wpdb->get_var(
+                $wpdb->prepare("SELECT id FROM {$table} WHERE recovery_code = %s LIMIT 1", $code)
+            );
+
+            if (!$exists) {
+                return $code;
+            }
+        }
+
+        return strtolower(wp_generate_password(10, false, false));
+    }
+
+    public static function backfill_recovery_codes() {
+        global $wpdb;
+
+        $table = self::table_name();
+        $rows  = $wpdb->get_results(
+            "SELECT id FROM {$table} WHERE recovery_code IS NULL OR recovery_code = ''"
+        );
+
+        foreach ($rows as $row) {
+            $wpdb->update(
+                $table,
+                ['recovery_code' => self::generate_recovery_code()],
+                ['id' => (int) $row->id]
+            );
+        }
     }
 
     /**
@@ -129,7 +196,7 @@ class WC_Acart_SMS_Database {
             $params[] = $data['phone'];
         }
 
-        $sql = "SELECT id, recovery_hash FROM {$table} WHERE " . implode(' AND ', $where) . ' ORDER BY id DESC LIMIT 1';
+        $sql = "SELECT id, recovery_hash, recovery_code FROM {$table} WHERE " . implode(' AND ', $where) . ' ORDER BY id DESC LIMIT 1';
 
         $existing = $wpdb->get_row($wpdb->prepare($sql, $params));
 
@@ -137,14 +204,21 @@ class WC_Acart_SMS_Database {
             ? $existing->recovery_hash
             : wp_generate_password(32, false, false);
 
+        $recovery_code = $existing && !empty($existing->recovery_code)
+            ? $existing->recovery_code
+            : self::generate_recovery_code();
+
         $row = [
-            'session_id'    => $data['session_id'] ?: null,
-            'user_id'       => $data['user_id'] ?: null,
-            'phone'         => $data['phone'],
-            'cart_data'     => $data['cart_data'],
-            'cart_total'    => $data['cart_total'],
-            'last_activity' => $data['last_activity'],
-            'recovery_hash' => $recovery_hash,
+            'session_id'          => $data['session_id'] ?: null,
+            'user_id'             => $data['user_id'] ?: null,
+            'phone'               => $data['phone'],
+            'cart_data'           => $data['cart_data'],
+            'cart_total'          => $data['cart_total'],
+            'last_activity'       => $data['last_activity'],
+            'recovery_hash'       => $recovery_hash,
+            'recovery_code'       => $recovery_code,
+            'customer_first_name' => isset($data['customer_first_name']) ? $data['customer_first_name'] : null,
+            'customer_last_name'  => isset($data['customer_last_name']) ? $data['customer_last_name'] : null,
         ];
 
         if ($existing) {
@@ -208,6 +282,17 @@ class WC_Acart_SMS_Database {
             $wpdb->prepare(
                 'SELECT * FROM ' . self::table_name() . ' WHERE recovery_hash = %s LIMIT 1',
                 $hash
+            )
+        );
+    }
+
+    public static function get_by_recovery_code($code) {
+        global $wpdb;
+
+        return $wpdb->get_row(
+            $wpdb->prepare(
+                'SELECT * FROM ' . self::table_name() . ' WHERE recovery_code = %s LIMIT 1',
+                $code
             )
         );
     }

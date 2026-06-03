@@ -3,7 +3,7 @@
  * Plugin Name: WooCommerce Abandoned Cart SMS
  * Plugin URI:  https://honix.ir
  * Description: تشخیص سبد خرید رها شده و ارسال پیامک بازیابی با sms.ir برای فروشگاه‌های ایرانی
- * Version:     1.0.0
+ * Version:     1.1.0
  * Author:      Honix
  * Text Domain: wc-abandoned-cart-sms
  * Requires at least: 5.8
@@ -15,7 +15,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('WC_ACART_SMS_VERSION', '1.0.0');
+define('WC_ACART_SMS_VERSION', '1.1.0');
 define('WC_ACART_SMS_PATH', plugin_dir_path(__FILE__));
 define('WC_ACART_SMS_URL', plugin_dir_url(__FILE__));
 define('WC_ACART_SMS_BASENAME', plugin_basename(__FILE__));
@@ -66,11 +66,12 @@ final class WC_Acart_SMS_Plugin {
         new WC_Acart_SMS_Cart_Tracker();
         new WC_Acart_SMS_Cron();
 
-        add_action('woocommerce_init', ['WC_Acart_SMS_Recovery', 'handle_recovery_request'], 5);
+        WC_Acart_SMS_Recovery::init();
 
         add_action('admin_init', function () {
-            if (get_option('wc_acart_sms_db_version') !== WC_ACART_SMS_VERSION) {
+            if (version_compare((string) get_option('wc_acart_sms_db_version', '0'), WC_ACART_SMS_VERSION, '<')) {
                 WC_Acart_SMS_Database::create_table();
+                WC_Acart_SMS_Recovery::flush_rewrite_rules();
                 update_option('wc_acart_sms_db_version', WC_ACART_SMS_VERSION);
             }
         });
@@ -100,8 +101,11 @@ register_activation_hook(__FILE__, function () {
     require_once WC_ACART_SMS_PATH . 'includes/class-database.php';
     require_once WC_ACART_SMS_PATH . 'includes/class-cron.php';
 
+    require_once WC_ACART_SMS_PATH . 'includes/class-recovery.php';
+
     WC_Acart_SMS_Database::create_table();
     WC_Acart_SMS_Cron::schedule_event();
+    WC_Acart_SMS_Recovery::flush_rewrite_rules();
 });
 
 register_deactivation_hook(__FILE__, function () {

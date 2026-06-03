@@ -37,14 +37,55 @@ class WC_Acart_SMS_Cart_Tracker {
 
         $phone = self::normalize_phone($phone);
 
+        $names = self::resolve_customer_names();
+
         WC_Acart_SMS_Database::upsert_active_cart([
-            'session_id'    => self::get_session_id(),
-            'user_id'       => get_current_user_id() ?: null,
-            'phone'         => $phone,
-            'cart_data'     => wp_json_encode($cart_items),
-            'cart_total'    => (float) WC()->cart->get_cart_contents_total(),
-            'last_activity' => current_time('mysql'),
+            'session_id'          => self::get_session_id(),
+            'user_id'             => get_current_user_id() ?: null,
+            'phone'               => $phone,
+            'cart_data'           => wp_json_encode($cart_items),
+            'cart_total'          => (float) WC()->cart->get_cart_contents_total(),
+            'last_activity'       => current_time('mysql'),
+            'customer_first_name' => $names['first_name'],
+            'customer_last_name'  => $names['last_name'],
         ]);
+    }
+
+    /**
+     * نام کاربر برای پیامک (ووکامرس / Digits).
+     *
+     * @return array{first_name:string,last_name:string}
+     */
+    public static function resolve_customer_names() {
+        $first = '';
+        $last  = '';
+
+        $user_id = get_current_user_id();
+        if ($user_id) {
+            $first = get_user_meta($user_id, 'billing_first_name', true);
+            $last  = get_user_meta($user_id, 'billing_last_name', true);
+
+            if ($first === '') {
+                $first = get_user_meta($user_id, 'first_name', true);
+            }
+            if ($last === '') {
+                $last = get_user_meta($user_id, 'last_name', true);
+            }
+        }
+
+        if (function_exists('WC') && WC()->customer) {
+            if ($first === '') {
+                $first = WC()->customer->get_billing_first_name();
+            }
+            if ($last === '') {
+                $last = WC()->customer->get_billing_last_name();
+            }
+        }
+
+        return [
+            'first_name' => sanitize_text_field((string) $first),
+            'last_name'  => sanitize_text_field((string) $last),
+        ];
     }
 
     /**
