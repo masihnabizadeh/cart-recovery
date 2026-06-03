@@ -7,48 +7,49 @@ if (!defined('ABSPATH')) {
 class WC_Acart_SMS_Admin_Menu {
 
     public function __construct() {
-        add_action('admin_menu', [$this, 'register_admin_menu']);
+        add_action('admin_menu', [$this, 'register_menus'], 60);
+        add_action('admin_enqueue_scripts', [$this, 'enqueue_assets']);
     }
 
-    public function register_admin_menu() {
-
-        add_menu_page(
-            __('Abandoned Cart SMS', 'wc-abandoned-cart-sms'),
+    public function register_menus() {
+        add_submenu_page(
+            'woocommerce',
+            __('سبد رها شده SMS', 'wc-abandoned-cart-sms'),
             __('Abandoned Cart SMS', 'wc-abandoned-cart-sms'),
             'manage_woocommerce',
             'wc-acart-sms',
-            ['WC_Acart_SMS_Admin_Page', 'render_dashboard_page'],
-            'dashicons-email-alt',
-            56
+            ['WC_Acart_SMS_Admin_Page', 'render_dashboard']
         );
 
         add_submenu_page(
-            'wc-acart-sms',
-            __('Dashboard', 'wc-abandoned-cart-sms'),
-            __('Dashboard', 'wc-abandoned-cart-sms'),
-            'manage_woocommerce',
-            'wc-acart-sms',
-            ['WC_Acart_SMS_Admin_Page', 'render_dashboard_page']
-        );
-
-        add_submenu_page(
-            'wc-acart-sms',
-            __('Settings', 'wc-abandoned-cart-sms'),
-            __('Settings', 'wc-abandoned-cart-sms'),
+            'woocommerce',
+            __('تنظیمات سبد رها شده', 'wc-abandoned-cart-sms'),
+            __('ACart SMS — تنظیمات', 'wc-abandoned-cart-sms'),
             'manage_woocommerce',
             'wc-acart-sms-settings',
-            ['WC_Acart_SMS_Admin_Page', 'render_settings_page']
+            ['WC_Acart_SMS_Admin_Page', 'render_settings']
         );
 
         add_submenu_page(
-            'wc-acart-sms',
-            __('Reports', 'wc-abandoned-cart-sms'),
-            __('Reports', 'wc-abandoned-cart-sms'),
+            'woocommerce',
+            __('گزارش سبدهای رها شده', 'wc-abandoned-cart-sms'),
+            __('ACart SMS — گزارش', 'wc-abandoned-cart-sms'),
             'manage_woocommerce',
             'wc-acart-sms-reports',
-            ['WC_Acart_SMS_Admin_Page', 'render_reports_page']
+            ['WC_Acart_SMS_Admin_Page', 'render_reports']
+        );
+    }
+
+    public function enqueue_assets($hook) {
+        if (strpos($hook, 'wc-acart-sms') === false) {
+            return;
+        }
+
+        wp_enqueue_style(
+            'wc-acart-sms-admin',
+            WC_ACART_SMS_URL . 'assets/css/admin-style.css',
+            [],
+            WC_ACART_SMS_VERSION
         );
     }
 }
-
-new WC_Acart_SMS_Admin_Menu();

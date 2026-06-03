@@ -1,95 +1,105 @@
 <?php
 /**
  * Plugin Name: WooCommerce Abandoned Cart SMS
- * Version: 2.0.0
- * Description: Modular abandoned cart recovery via Order Lifecycle
+ * Plugin URI:  https://honix.ir
+ * Description: تشخیص سبد خرید رها شده و ارسال پیامک بازیابی با sms.ir برای فروشگاه‌های ایرانی
+ * Version:     1.0.0
+ * Author:      Honix
+ * Text Domain: wc-abandoned-cart-sms
+ * Requires at least: 5.8
+ * Requires PHP: 7.4
+ * WC requires at least: 6.0
  */
 
 if (!defined('ABSPATH')) {
     exit;
 }
 
-class WC_Acart_SMS {
+define('WC_ACART_SMS_VERSION', '1.0.0');
+define('WC_ACART_SMS_PATH', plugin_dir_path(__FILE__));
+define('WC_ACART_SMS_URL', plugin_dir_url(__FILE__));
+define('WC_ACART_SMS_BASENAME', plugin_basename(__FILE__));
 
-    public function __construct() {
+final class WC_Acart_SMS_Plugin {
 
-        $this->define_constants();
+    private static $instance = null;
 
-        $this->includes();
-
-        $this->init_hooks();
+    public static function instance() {
+        if (null === self::$instance) {
+            self::$instance = new self();
+        }
+        return self::$instance;
     }
 
-    private function define_constants() {
+    private function __construct() {
+        add_action('plugins_loaded', [$this, 'init']);
+    }
 
-        define('WC_ACART_SMS_PATH', plugin_dir_path(__FILE__));
+    public function init() {
+        if (!class_exists('WooCommerce')) {
+            add_action('admin_notices', [$this, 'woocommerce_missing_notice']);
+            return;
+        }
 
-        define('WC_ACART_SMS_URL', plugin_dir_url(__FILE__));
+        $this->includes();
+        $this->hooks();
     }
 
     private function includes() {
-
         require_once WC_ACART_SMS_PATH . 'includes/class-database.php';
-
         require_once WC_ACART_SMS_PATH . 'includes/class-settings.php';
-
         require_once WC_ACART_SMS_PATH . 'includes/class-cart-tracker.php';
-
+        require_once WC_ACART_SMS_PATH . 'includes/class-coupon.php';
+        require_once WC_ACART_SMS_PATH . 'includes/class-sms.php';
+        require_once WC_ACART_SMS_PATH . 'includes/class-recovery.php';
         require_once WC_ACART_SMS_PATH . 'includes/class-abandon-detector.php';
-
         require_once WC_ACART_SMS_PATH . 'includes/class-cron.php';
 
-        require_once WC_ACART_SMS_PATH . 'includes/class-sms.php';
-
-        require_once WC_ACART_SMS_PATH . 'includes/class-recovery.php';
-
-        require_once WC_ACART_SMS_PATH . 'includes/class-coupon.php';
-
         if (is_admin()) {
-
             require_once WC_ACART_SMS_PATH . 'admin/class-admin-menu.php';
-
             require_once WC_ACART_SMS_PATH . 'admin/class-admin-page.php';
         }
     }
 
-    private function init_hooks() {
-
-        // Start cron system
+    private function hooks() {
+        new WC_Acart_SMS_Settings();
+        new WC_Acart_SMS_Cart_Tracker();
         new WC_Acart_SMS_Cron();
 
-        new WC_Acart_SMS_Cart_Tracker();
+        add_action('init', ['WC_Acart_SMS_Recovery', 'handle_recovery_request'], 5);
 
-        // Handle recovery links
-        add_action(
-            'init',
-            ['WC_Acart_SMS_Recovery', 'handle_recovery_request']
-        );
+        if (is_admin()) {
+            new WC_Acart_SMS_Admin_Menu();
+        }
+    }
+
+    public function woocommerce_missing_notice() {
+        echo '<div class="notice notice-error"><p>';
+        esc_html_e('افزونه Abandoned Cart SMS به WooCommerce نیاز دارد.', 'wc-abandoned-cart-sms');
+        echo '</p></div>';
     }
 }
 
+register_activation_hook(__FILE__, function () {
+    if (!class_exists('WooCommerce')) {
+        deactivate_plugins(plugin_basename(__FILE__));
+        wp_die(
+            esc_html__('این افزونه به WooCommerce نیاز دارد.', 'wc-abandoned-cart-sms'),
+            esc_html__('خطا در فعال‌سازی', 'wc-abandoned-cart-sms'),
+            ['back_link' => true]
+        );
+    }
 
-/**
- * Plugin activation
- */
-register_activation_hook(
-    __FILE__,
-    ['WC_Acart_SMS_Database', 'create_table']
-);
+    require_once WC_ACART_SMS_PATH . 'includes/class-database.php';
+    require_once WC_ACART_SMS_PATH . 'includes/class-cron.php';
 
-register_activation_hook(
-    __FILE__,
-    ['WC_Acart_SMS_Cron', 'schedule_event']
-);
+    WC_Acart_SMS_Database::create_table();
+    WC_Acart_SMS_Cron::schedule_event();
+});
 
+register_deactivation_hook(__FILE__, function () {
+    require_once WC_ACART_SMS_PATH . 'includes/class-cron.php';
+    WC_Acart_SMS_Cron::clear_scheduled_event();
+});
 
-/**
- * Plugin deactivation
- */
-register_deactivation_hook(
-    __FILE__,
-    ['WC_Acart_SMS_Cron', 'clear_scheduled_event']
-);
-
-
-new WC_Acart_SMS();
+WC_Acart_SMS_Plugin::instance();

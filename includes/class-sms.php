@@ -4,89 +4,67 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-class WC_Acart_SMS_Sms {
-
-    private $api_key;
-    private $line_number;
-
-    public function __construct() {
-
-        $this->api_key     = get_option('wc_acart_sms_api_key');
-        $this->line_number = get_option('wc_acart_sms_line_number');
-    }
+class WC_Acart_SMS_SMS {
 
     /**
-     * Send recovery SMS
+     * Build message from admin template and placeholders.
      */
-    public function send_recovery_sms($phone, $link) {
+    public static function build_message($cart_link, $coupon_code = '') {
+        $template = WC_Acart_SMS_Settings::get_message_template();
 
-        if (empty($phone) || empty($link)) {
-            return false;
-        }
-
-        $message = $this->build_message($link);
-
-        return $this->send_sms($phone, $message);
-    }
-
-    /**
-     * Build SMS text from template
-     */
-    private function build_message($link) {
-
-        $template = get_option(
-            'wc_acart_sms_text_template',
-            'سبد خرید شما در [site_name] ناتمام مانده است. برای تکمیل خرید روی لینک زیر کلیک کنید: [link]'
-        );
-
-        $site_name = get_bloginfo('name');
-
-        $message = str_replace(
-            ['[site_name]', '[link]'],
-            [$site_name, $link],
-            $template
-        );
-
-        return $message;
-    }
-
-    /**
-     * Send SMS via sms.ir
-     */
-    private function send_sms($phone, $message) {
-
-        if (empty($this->api_key) || empty($this->line_number)) {
-            return false;
-        }
-
-        $endpoint = "https://api.sms.ir/v1/send/bulk";
-
-        $body = [
-            "lineNumber" => $this->line_number,
-            "messageText" => $message,
-            "mobiles" => [$phone]
+        $replacements = [
+            '{cart_link}' => $cart_link,
+            '{coupon}'    => $coupon_code ?: '—',
+            '{expiry}'    => WC_Acart_SMS_Settings::format_expiry_label(),
         ];
 
-        $response = wp_remote_post($endpoint, [
-            'headers' => [
-                'Content-Type'  => 'application/json',
-                'Accept'        => 'text/plain',
-                'x-api-key'     => $this->api_key
-            ],
-            'body' => json_encode($body),
-            'timeout' => 20
-        ]);
+        return str_replace(array_keys($replacements), array_values($replacements), $template);
+    }
+
+    /**
+     * Send SMS via sms.ir (bulk API v1).
+     */
+    public static function send($phone, $message) {
+        $api_key     = WC_Acart_SMS_Settings::get_api_key();
+        $line_number = WC_Acart_SMS_Settings::get_line_number();
+
+        if (empty($api_key) || empty($line_number) || empty($phone) || empty($message)) {
+            return false;
+        }
+
+        $phone = WC_Acart_SMS_Cart_Tracker::normalize_phone($phone);
+        if (empty($phone)) {
+            return false;
+        }
+
+        $mobile = $phone;
+        if (strpos($mobile, '0') === 0) {
+            $mobile = '98' . substr($mobile, 1);
+        }
+
+        $response = wp_remote_post(
+            'https://api.sms.ir/v1/send/bulk',
+            [
+                'timeout' => 20,
+                'headers' => [
+                    'Content-Type' => 'application/json',
+                    'Accept'       => 'text/plain',
+                    'x-api-key'    => $api_key,
+                ],
+                'body' => wp_json_encode([
+                    'lineNumber'  => (int) $line_number,
+                    'messageText' => $message,
+                    'mobiles'     => [$mobile],
+                ]),
+            ]
+        );
 
         if (is_wp_error($response)) {
             return false;
         }
 
-        $status = wp_remote_retrieve_response_code($response);
+        $code = (int) wp_remote_retrieve_response_code($response);
 
-        if ($status != 200) {
-            return false;
-        }
-
-        return true;
+        return $code >= 200 && $code < 300;
     }
 }

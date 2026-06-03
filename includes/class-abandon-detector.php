@@ -6,232 +6,92 @@ if (!defined('ABSPATH')) {
 
 class WC_Acart_SMS_Abandon_Detector {
 
-    /**
-     * پیدا کردن سبدهای رها شده
-     */
-    public static function process_abandoned_carts() {
+    public static function process() {
+        $minutes = WC_Acart_SMS_Settings::get_abandon_minutes();
 
-        global $wpdb;
+        $cutoff = gmdate('Y-m-d H:i:s', time() - ($minutes * 60));
+        $rows   = WC_Acart_SMS_Database::get_abandoned_candidates($cutoff);
 
-        $table_name = $wpdb->prefix . 'acart_sms';
-
-        /**
-         * مدت زمان انتظار
-         * پیشفرض: 45 دقیقه
-         */
-
-        $minutes = intval(
-            get_option(
-                'wc_acart_sms_abandon_time',
-                45
-            )
-        );
-
-        // حداقل 1 دقیقه
-        if ($minutes < 1) {
-            $minutes = 1;
-        }
-
-        /**
-         * زمان cutoff
-         */
-
-        $cutoff_time = gmdate(
-            'Y-m-d H:i:s',
-            time() - ($minutes * 60)
-        );
-
-        /**
-         * دریافت سبدهای رها شده
-         */
-
-        $rows = $wpdb->get_results(
-            $wpdb->prepare(
-
-                "SELECT *
-                 FROM {$table_name}
-
-                 WHERE last_activity <= %s
-
-                 AND sms_sent = 0
-
-                 AND recovered = 0
-
-                 AND phone != ''
-
-                 ORDER BY id ASC",
-
-                $cutoff_time
-            )
-        );
-
-        // چیزی پیدا نشد
         if (empty($rows)) {
             return;
         }
 
         foreach ($rows as $row) {
+            self::process_single_cart($row);
+        }
+    }
 
-            /**
-             * بررسی ثبت سفارش
-             */
+    private static function process_single_cart($row) {
+        if (self::has_recent_order($row)) {
+            return;
+        }
 
-            if (self::has_completed_order($row->phone)) {
+        if (!self::cart_still_abandoned($row)) {
+            return;
+        }
 
-                // دیگر abandoned نیست
-                continue;
-            }
+        WC_Acart_SMS_Database::update_row((int) $row->id, [
+            'abandoned_at' => current_time('mysql'),
+        ]);
 
-            /**
-             * ثبت زمان abandoned
-             */
+        $coupon_code = WC_Acart_SMS_Coupon::generate_for_cart($row);
 
-            if (empty($row->abandoned_at)) {
+        if ($coupon_code) {
+            WC_Acart_SMS_Database::update_row((int) $row->id, [
+                'coupon_code' => $coupon_code,
+            ]);
+            $row->coupon_code = $coupon_code;
+        }
 
-                $wpdb->update(
-                    $table_name,
-                    [
-                        'abandoned_at' => current_time('mysql')
-                    ],
-                    [
-                        'id' => $row->id
-                    ]
-                );
-            }
+        $recovery_url = WC_Acart_SMS_Recovery::get_recovery_url($row->recovery_hash);
+        $message      = WC_Acart_SMS_SMS::build_message($recovery_url, $row->coupon_code ?? '');
 
-            /**
-             * ساخت لینک بازیابی
-             */
+        $sent = WC_Acart_SMS_SMS::send($row->phone, $message);
 
-            $recovery_url = add_query_arg(
-                [
-                    'acart_recover' => 1,
-                    'key' => $row->recovery_key,
-                ],
-                wc_get_cart_url()
-            );
-
-            /**
-             * ساخت کد تخفیف
-             */
-
-            $coupon_code = '';
-
-            $enable_coupon = get_option(
-                'wc_acart_sms_enable_coupon',
-                'yes'
-            );
-
-            if ($enable_coupon === 'yes') {
-
-                $coupon_code = WC_Acart_SMS_Coupon::generate_coupon(
-                    $row
-                );
-
-                $wpdb->update(
-                    $table_name,
-                    [
-                        'coupon_code' => $coupon_code
-                    ],
-                    [
-                        'id' => $row->id
-                    ]
-                );
-            }
-
-            /**
-             * متن پیامک
-             */
-
-            $message = get_option(
-                'wc_acart_sms_message',
-                'سبد خرید شما هنوز تکمیل نشده است: {cart_url}'
-            );
-
-            /**
-             * جایگزینی متغیرها
-             */
-
-            $message = str_replace(
-                '{cart_url}',
-                $recovery_url,
-                $message
-            );
-
-            $message = str_replace(
-                '{coupon}',
-                $coupon_code,
-                $message
-            );
-
-            $message = str_replace(
-                '{site_name}',
-                get_bloginfo('name'),
-                $message
-            );
-
-            $message = str_replace(
-                '{phone}',
-                $row->phone,
-                $message
-            );
-
-            /**
-             * ارسال پیامک
-             */
-
-            $sent = WC_Acart_SMS_SMS::send_sms(
-                $row->phone,
-                $message
-            );
-
-            /**
-             * ثبت وضعیت
-             */
-
-            if ($sent) {
-
-                $wpdb->update(
-                    $table_name,
-                    [
-                        'sms_sent' => 1
-                    ],
-                    [
-                        'id' => $row->id
-                    ]
-                );
-            }
+        if ($sent) {
+            WC_Acart_SMS_Database::update_row((int) $row->id, [
+                'sms_sent' => 1,
+            ]);
         }
     }
 
     /**
-     * آیا کاربر سفارش ثبت کرده؟
+     * User completed an order after this cart's last activity.
      */
-
-    private static function has_completed_order($phone) {
-
-        if (empty($phone)) {
+    private static function has_recent_order($row) {
+        if (empty($row->phone)) {
             return false;
         }
 
         $orders = wc_get_orders([
-
-            'limit' => 1,
-
-            'billing_phone' => $phone,
-
-            'status' => [
-
-                'processing',
-                'completed',
-                'on-hold',
-            ],
-
-            'orderby' => 'date',
-
-            'order' => 'DESC',
+            'limit'         => 1,
+            'billing_phone' => $row->phone,
+            'status'        => ['processing', 'completed', 'on-hold'],
+            'date_created'  => '>' . strtotime($row->last_activity),
+            'orderby'       => 'date',
+            'order'         => 'DESC',
         ]);
 
         return !empty($orders);
+    }
+
+    /**
+     * WooCommerce live cart for this user/session should be empty or inactive.
+     */
+    private static function cart_still_abandoned($row) {
+        if (!function_exists('WC') || !WC()->cart) {
+            return true;
+        }
+
+        $current_phone = WC_Acart_SMS_Cart_Tracker::resolve_phone();
+        if ($current_phone && $current_phone === $row->phone && !WC()->cart->is_empty()) {
+            $last = strtotime($row->last_activity);
+            $now  = strtotime(current_time('mysql'));
+            if (($now - $last) < (WC_Acart_SMS_Settings::get_abandon_minutes() * 60)) {
+                return false;
+            }
+        }
+
+        return true;
     }
 }
