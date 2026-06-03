@@ -24,6 +24,8 @@ class WC_Acart_SMS_Cron {
     }
 
     public static function schedule_event() {
+        add_filter('cron_schedules', [__CLASS__, 'add_five_minute_schedule']);
+
         if (!wp_next_scheduled(self::HOOK)) {
             wp_schedule_event(time() + 60, 'every_five_minutes', self::HOOK);
         }

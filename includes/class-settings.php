@@ -58,7 +58,15 @@ class WC_Acart_SMS_Settings {
     public static function get_message_template() {
         $default = 'سبد خرید شما کامل نشد. کد تخفیف: {coupon} — مهلت: {expiry} — ادامه خرید: {cart_link}';
 
-        return (string) get_option('wc_acart_sms_message_template', $default);
+        $value = get_option('wc_acart_sms_message_template', '');
+        if ($value === '' || $value === false) {
+            $legacy = get_option('wc_acart_sms_text_template', '');
+            if ($legacy !== '' && $legacy !== false) {
+                return (string) $legacy;
+            }
+        }
+
+        return $value !== '' && $value !== false ? (string) $value : $default;
     }
 
     public static function get_coupon_prefix() {
@@ -67,6 +75,9 @@ class WC_Acart_SMS_Settings {
 
     public static function get_coupon_type() {
         $type = get_option('wc_acart_sms_coupon_type', 'percent');
+        if ($type === 'fixed_cart') {
+            $type = 'fixed';
+        }
         return in_array($type, ['percent', 'fixed'], true) ? $type : 'percent';
     }
 
@@ -75,7 +86,12 @@ class WC_Acart_SMS_Settings {
     }
 
     public static function get_coupon_expiry_hours() {
-        return max(1, (int) get_option('wc_acart_sms_coupon_expiry_hours', 24));
+        $hours = get_option('wc_acart_sms_coupon_expiry_hours', '');
+        if ($hours === '' || $hours === false) {
+            $legacy = get_option('wc_acart_sms_coupon_expiry', 24);
+            $hours  = $legacy;
+        }
+        return max(1, (int) $hours);
     }
 
     public static function get_coupon_code_length() {

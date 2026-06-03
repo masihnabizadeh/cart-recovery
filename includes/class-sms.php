@@ -6,15 +6,12 @@ if (!defined('ABSPATH')) {
 
 class WC_Acart_SMS_SMS {
 
-    /**
-     * Build message from admin template and placeholders.
-     */
     public static function build_message($cart_link, $coupon_code = '') {
         $template = WC_Acart_SMS_Settings::get_message_template();
 
         $replacements = [
             '{cart_link}' => $cart_link,
-            '{coupon}'    => $coupon_code ?: '—',
+            '{coupon}'    => $coupon_code !== '' ? $coupon_code : '—',
             '{expiry}'    => WC_Acart_SMS_Settings::format_expiry_label(),
         ];
 
@@ -22,18 +19,20 @@ class WC_Acart_SMS_SMS {
     }
 
     /**
-     * Send SMS via sms.ir (bulk API v1).
+     * ارسال پیامک از طریق API رسمی sms.ir (نسخه bulk v1).
      */
     public static function send($phone, $message) {
         $api_key     = WC_Acart_SMS_Settings::get_api_key();
         $line_number = WC_Acart_SMS_Settings::get_line_number();
 
-        if (empty($api_key) || empty($line_number) || empty($phone) || empty($message)) {
+        if ($api_key === '' || $line_number === '' || $phone === '' || $message === '') {
+            self::log('ارسال رد شد: API Key، Line Number، شماره یا متن خالی است.');
             return false;
         }
 
         $phone = WC_Acart_SMS_Cart_Tracker::normalize_phone($phone);
-        if (empty($phone)) {
+        if ($phone === '') {
+            self::log('ارسال رد شد: شماره موبایل نامعتبر.');
             return false;
         }
 
@@ -45,10 +44,10 @@ class WC_Acart_SMS_SMS {
         $response = wp_remote_post(
             'https://api.sms.ir/v1/send/bulk',
             [
-                'timeout' => 20,
+                'timeout' => 25,
                 'headers' => [
                     'Content-Type' => 'application/json',
-                    'Accept'       => 'text/plain',
+                    'Accept'       => 'application/json',
                     'x-api-key'    => $api_key,
                 ],
                 'body' => wp_json_encode([
@@ -60,11 +59,33 @@ class WC_Acart_SMS_SMS {
         );
 
         if (is_wp_error($response)) {
+            self::log('خطای HTTP: ' . $response->get_error_message());
             return false;
         }
 
-        $code = (int) wp_remote_retrieve_response_code($response);
+        $http_code = (int) wp_remote_retrieve_response_code($response);
+        $body      = wp_remote_retrieve_body($response);
+        $data      = json_decode($body, true);
 
-        return $code >= 200 && $code < 300;
+        if ($http_code < 200 || $http_code >= 300) {
+            self::log(sprintf('پاسخ HTTP %d: %s', $http_code, $body));
+            return false;
+        }
+
+        if (is_array($data) && isset($data['status']) && (int) $data['status'] !== 1) {
+            $msg = isset($data['message']) ? $data['message'] : $body;
+            self::log('sms.ir status ناموفق: ' . $msg);
+            return false;
+        }
+
+        return true;
+    }
+
+    private static function log($message) {
+        if (!function_exists('wc_get_logger')) {
+            return;
+        }
+
+        wc_get_logger()->info($message, ['source' => 'wc-abandoned-cart-sms']);
     }
 }

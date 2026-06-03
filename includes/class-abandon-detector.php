@@ -9,7 +9,7 @@ class WC_Acart_SMS_Abandon_Detector {
     public static function process() {
         $minutes = WC_Acart_SMS_Settings::get_abandon_minutes();
 
-        $cutoff = gmdate('Y-m-d H:i:s', time() - ($minutes * 60));
+        $cutoff = wp_date('Y-m-d H:i:s', time() - ($minutes * MINUTE_IN_SECONDS));
         $rows   = WC_Acart_SMS_Database::get_abandoned_candidates($cutoff);
 
         if (empty($rows)) {
@@ -67,9 +67,10 @@ class WC_Acart_SMS_Abandon_Detector {
             'limit'         => 1,
             'billing_phone' => $row->phone,
             'status'        => ['processing', 'completed', 'on-hold'],
-            'date_created'  => '>' . strtotime($row->last_activity),
+            'date_after'    => $row->last_activity,
             'orderby'       => 'date',
             'order'         => 'DESC',
+            'return'        => 'ids',
         ]);
 
         return !empty($orders);

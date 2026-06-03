@@ -52,7 +52,7 @@ class WC_Acart_SMS_Cart_Tracker {
         $user_id = get_current_user_id();
 
         if ($user_id) {
-            $digits_keys = ['digits_phone', 'digits_phone_no', 'digt_countrycode'];
+            $digits_keys = ['digits_phone', 'digits_phone_no'];
 
             foreach ($digits_keys as $key) {
                 $phone = get_user_meta($user_id, $key, true);
@@ -133,6 +133,7 @@ class WC_Acart_SMS_Cart_Tracker {
             return (string) $customer_id;
         }
 
-        return (string) WC()->session->get_session_cookie()[0] ?? '';
+        $cookie = WC()->session->get_session_cookie();
+        return (is_array($cookie) && isset($cookie[0])) ? (string) $cookie[0] : '';
     }
 }

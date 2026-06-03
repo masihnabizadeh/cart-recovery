@@ -66,7 +66,14 @@ final class WC_Acart_SMS_Plugin {
         new WC_Acart_SMS_Cart_Tracker();
         new WC_Acart_SMS_Cron();
 
-        add_action('init', ['WC_Acart_SMS_Recovery', 'handle_recovery_request'], 5);
+        add_action('woocommerce_init', ['WC_Acart_SMS_Recovery', 'handle_recovery_request'], 5);
+
+        add_action('admin_init', function () {
+            if (get_option('wc_acart_sms_db_version') !== WC_ACART_SMS_VERSION) {
+                WC_Acart_SMS_Database::create_table();
+                update_option('wc_acart_sms_db_version', WC_ACART_SMS_VERSION);
+            }
+        });
 
         if (is_admin()) {
             new WC_Acart_SMS_Admin_Menu();

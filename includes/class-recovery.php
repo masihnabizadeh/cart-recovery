@@ -20,7 +20,7 @@ class WC_Acart_SMS_Recovery {
         }
 
         $hash = sanitize_text_field(wp_unslash($_GET['recover_cart']));
-        if (empty($hash)) {
+        if ($hash === '') {
             return;
         }
 
@@ -28,10 +28,15 @@ class WC_Acart_SMS_Recovery {
             return;
         }
 
+        if (is_null(WC()->cart)) {
+            wc_load_cart();
+        }
+
         $row = WC_Acart_SMS_Database::get_by_recovery_hash($hash);
         if (!$row) {
             wc_add_notice(__('لینک بازیابی نامعتبر یا منقضی شده است.', 'wc-abandoned-cart-sms'), 'error');
-            return;
+            wp_safe_redirect(wc_get_cart_url());
+            exit;
         }
 
         if (!empty($row->recovered)) {
@@ -43,6 +48,7 @@ class WC_Acart_SMS_Recovery {
 
         if (!empty($row->coupon_code) && WC()->cart) {
             WC()->cart->apply_coupon($row->coupon_code);
+            WC()->cart->calculate_totals();
         }
 
         WC_Acart_SMS_Database::update_row((int) $row->id, [
@@ -50,7 +56,7 @@ class WC_Acart_SMS_Recovery {
             'recovered_at' => current_time('mysql'),
         ]);
 
-        wc_add_notice(__('سبد خرید شما بازیابی شد.', 'wc-abandoned-cart-sms'), 'success');
+        wc_add_notice(__('سبد خرید شما بازیابی شد. می‌توانید خرید را تکمیل کنید.', 'wc-abandoned-cart-sms'), 'success');
 
         wp_safe_redirect(wc_get_cart_url());
         exit;
@@ -71,18 +77,31 @@ class WC_Acart_SMS_Recovery {
         foreach ($items as $item) {
             $product_id   = isset($item['product_id']) ? (int) $item['product_id'] : 0;
             $variation_id = isset($item['variation_id']) ? (int) $item['variation_id'] : 0;
-            $quantity     = isset($item['quantity']) ? (int) $item['quantity'] : 1;
+            $quantity     = isset($item['quantity']) ? max(1, (int) $item['quantity']) : 1;
 
-            if ($product_id < 1 || $quantity < 1) {
+            if ($product_id < 1) {
                 continue;
             }
 
-            $product = wc_get_product($variation_id ?: $product_id);
-            if (!$product || !$product->is_purchasable()) {
+            $product = wc_get_product($variation_id > 0 ? $variation_id : $product_id);
+            if (!$product || !$product->is_purchasable() || !$product->is_in_stock()) {
                 continue;
             }
 
-            WC()->cart->add_to_cart($product_id, $quantity, $variation_id);
+            $cart_item_data = [];
+            if ($variation_id > 0) {
+                $variation = wc_get_product($variation_id);
+                if ($variation) {
+                    $cart_item_data = ['variation' => $variation->get_variation_attributes()];
+                }
+            }
+
+            WC()->cart->add_to_cart(
+                $product_id,
+                $quantity,
+                $variation_id,
+                $cart_item_data['variation'] ?? []
+            );
         }
 
         WC()->cart->calculate_totals();
